@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# JURACAN 0.1 by teehay
+# JURACAN 0.2 by teehay
 
 # A Python(3) script that uses Firefox and Selenium to search the Hurricane Electric Internet Services website for a keyword and output
 # or store the results. Please do not abuse the service by spamming requests.
