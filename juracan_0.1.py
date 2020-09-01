@@ -7,6 +7,7 @@
 # Current feature priority:
 # Connect script to databases and add corresponding flags
 # Add Chromium support with flag
+# Add more output options (and flag) for use with other popular tools
 
 from selenium.webdriver import Firefox
 from selenium.webdriver.common.by import By
