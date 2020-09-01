@@ -1,5 +1,7 @@
 # juracan
 
+dependencies: beautifulsoup4, selenium
+
 usage: juracan_0.1.py [-h] [keyword]
 
 Gets ASN and ISP addresses related to the target keyword from the Hurricane
