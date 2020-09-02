@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-# JURACAN 0.2 by teehay
+# JURACAN 0.3 by teehay
 
 # A Python(3) script that uses Firefox and Selenium to search the Hurricane Electric Internet Services website for a keyword and output
 # or store the results. Please do not abuse the service by spamming requests.
 
-# Current feature priority:
-# Connect script to databases and add corresponding flags
+# Current feature priorities:
+#     Connect script to databases and add corresponding flags
+#     EXCEPTION HANDLING!!
 
 from selenium.webdriver import Firefox
 from selenium.webdriver.common.by import By
@@ -16,7 +17,7 @@ from selenium.webdriver.support.wait import WebDriverWait
 from bs4 import BeautifulSoup
 import argparse
 import sys
-import mysql.connector #to be added
+import mysql.connector
 import sqlite3
 
 if __name__ == "__main__":
@@ -25,6 +26,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Gets ASN and ISP addresses related to the target keyword from the Hurricane Electric Internet Services website. Please do not abuse this service!')
     parser.add_argument('keyword', metavar='keyword', type=str, nargs='?', help='target keyword')
     parser.add_argument('--sqlite',  metavar=('dbpath', 'tablename'), nargs=2, help='store results in a SQLite database')
+    parser.add_argument('--mysql',  metavar=('host', 'dbname', 'tblname', 'user', 'password'),\
+    nargs=5, help='store results in a MySQL database' )
 
     if len(sys.argv) < 2:
         parser.print_usage()
@@ -49,10 +52,17 @@ if __name__ == "__main__":
     soup = BeautifulSoup(driver.page_source, features='lxml')
     results = soup.find_all('tr')
 
+    ## Set up databases
     if arg.sqlite:
-        conn = sqlite3.connect(arg.sqlite[0])
-        c = conn.cursor()
-        c.execute("CREATE TABLE IF NOT EXISTS " + arg.sqlite[1] + " (id INTEGER UNIQUE, result TEXT UNIQUE, description TEXT, country TEXT, PRIMARY KEY(id))")
+        sqliteconn = sqlite3.connect(arg.sqlite[0])
+        c = sqliteconn.cursor()
+        c.execute("CREATE TABLE IF NOT EXISTS " + arg.sqlite[1] + " (result TEXT PRIMARY KEY, description TEXT, country TEXT)")
+
+    if arg.mysql:
+        mysqlconn = mysql.connector.connect(host=arg.mysql[0], database=arg.mysql[1], user=arg.mysql[3], password=arg.mysql[4])
+        if mysqlconn.is_connected():
+            cur = mysqlconn.cursor()
+            cur.execute("CREATE TABLE IF NOT EXISTS " + arg.mysql[2] + " (result VARCHAR(192) PRIMARY KEY, description VARCHAR(256), country VARCHAR(128))")
 
     ## Cycle through results and print header, then results in formatted form
     for i in range(1, len(results)):
@@ -68,11 +78,21 @@ if __name__ == "__main__":
 
             print(f"{res:<44}{desc:<48}{country:<16}")
 
+            ## Handle database insertion
             if arg.sqlite:
                 c.execute("INSERT INTO " + arg.sqlite[1] + " (result, description, country) VALUES (?, ?, ?)", (res, desc, country))
 
+            if arg.mysql:
+                cur.execute("INSERT INTO " + arg.mysql[2] + " (result, description, country) VALUES (%s, %s, %s)", (res, desc, country))
+
+    ## Close db connections
     if arg.sqlite:
-        conn.commit()
-        conn.close()
-                  
+        sqliteconn.commit()
+        sqliteconn.close() 
+
+    if arg.mysql:
+        mysqlconn.commit()
+        mysqlconn.close()
+
+    ## Close WebDriver
     driver.quit()
