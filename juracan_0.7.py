@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
-# JURACAN 0.7 by teehay
+# JURACAN 1.0 by teehay
 
-# A Python(3) script that uses Firefox and Selenium to search the Hurricane Electric Internet Services website for a keyword and output
+# A Python(3) script that uses Firefox (or Chrome) and Selenium to search the Hurricane Electric Internet Services website for a keyword and output
 # or store the results. Please do not abuse the service by spamming requests.
 
-# Current feature priorities:
-#     EXCEPTION HANDLING!!
-#     Handle commas in csv data
-
-from selenium.webdriver import Firefox
+from selenium.webdriver import Firefox, Chrome
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.firefox.options import Options
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.firefox.options import Options as firefox_options
+from selenium.webdriver.chrome.options import Options as chrome_options
 from selenium.webdriver.support import expected_conditions as expected
 from selenium.webdriver.support.wait import WebDriverWait
 from bs4 import BeautifulSoup
 import argparse
 import sys
+import os
 import mysql.connector
 import sqlite3
+import subprocess
 
 if __name__ == "__main__":
 
@@ -33,7 +33,14 @@ if __name__ == "__main__":
     help="output table data as a CSV list")
     parser.add_argument('-r', '--result', action='store_true', \
     help="output the result column data only; if --csv is on, result column data is output as a CSV list")
-
+    parser.add_argument('-e', '--exec', metavar='path', type=str, nargs='?', \
+    help="specify the location path to the driver executable that will be used; checks system path by default")
+    parser.add_argument('-b', '--binary', metavar='path', type=str, nargs='?', \
+    help="specify the location path to the browser binary that will be used; checks common locations by default")
+    parser.add_argument('-d', '--driver', metavar='initial', type=str, nargs='?', default='g', const='g',\
+    help="specify the browser driver that will be used in the search; options: c[hrome], g[ecko]; default: g")
+    parser.add_argument('-q', '--quiet', action='store_true', \
+    help="run script with no screen output")
 
     if len(sys.argv) < 2:
         parser.print_usage()
@@ -41,18 +48,48 @@ if __name__ == "__main__":
     else:
         arg = parser.parse_args()
 
-    ## Set up WebDriver
-    options = Options()
-    options.add_argument('-headless')
+    ## Get OS path in list form
+    dummypath = dict(os.environ)['PATH'].split(os.pathsep) 
 
-    driver = Firefox(executable_path='/usr/bin/geckodriver', options=options)
-    wait = WebDriverWait(driver, timeout=10)
+    ## Handle browser option
+    if arg.driver == 'g': # Gecko (Firefox)
+        options = firefox_options()
+        options.add_argument('--headless')
+
+        if arg.binary:
+            options.binary_location = arg.binary
+
+        if arg.exec:
+            driver = Firefox(executable_path=arg.exec, options=options)
+        else:
+            driver = Firefox(options=options)
+
+    elif arg.driver == 'c': # Chrome
+        options = chrome_options()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox') # Allows use as root, use at own risk!
+
+        if arg.binary:
+            options.binary_location = arg.binary
+
+        if arg.exec:
+            driver = Chrome(executable_path=arg.exec, options=options)
+        else:
+            driver = Chrome(options=options)
+
+    ## Navigate to site
     driver.get('https://bgp.he.net')
 
     ## Perform search and wait for results to populate
-    wait.until(expected.presence_of_element_located((By.NAME, 'search[search]'))).send_keys(arg.keyword + Keys.ENTER)
-    wait.until(expected.element_to_be_clickable((By.NAME, 'commit'))).click()
-    wait.until(expected.presence_of_element_located((By.TAG_NAME, 'table')))
+    wait = WebDriverWait(driver, timeout=20)
+
+    try:
+        wait.until(expected.presence_of_element_located((By.NAME, 'search[search]'))).send_keys(arg.keyword + Keys.ENTER)
+        wait.until(expected.element_to_be_clickable((By.NAME, 'commit'))).click()
+        wait.until(expected.presence_of_element_located((By.TAG_NAME, 'table')))
+    except TimeoutException:
+        print("Page has timed out while waiting for elements to load. Check your connection or try again later.")
+        sys.exit(1)
 
     ## Set up BeautifulSoup and find individual results
     soup = BeautifulSoup(driver.page_source, 'lxml')
@@ -78,11 +115,12 @@ if __name__ == "__main__":
             else:
                 cur.execute("CREATE TABLE IF NOT EXISTS " + arg.mysql[2] + " (result VARCHAR(192) PRIMARY KEY, description VARCHAR(256), country VARCHAR(128))")
 
+    ## Create list to hold values, then join as CSV string
     csvlist = []
 
-    ## Cycle through results and print header, then results in formatted form
+    ## Print header, then results in formatted form
     for i in range(1, len(results)):
-        if i == 1 and not arg.csv and not arg.result:
+        if i == 1 and not arg.csv and not arg.result and not arg.quiet:
             print("Keyword: " + results[i].a.string)
             print(f"{'Results:':<44}{'Description:':<48}{'Country:':<16}")
         elif i > 1:
@@ -98,12 +136,13 @@ if __name__ == "__main__":
                 if ',' in desc:
                     desc = "\"" + desc + "\""
                 csvlist.extend([res, desc, country])
-            elif not arg.csv and arg.result:
+            elif not arg.csv and arg.result and not arg.quiet:
                 print(f"{res:<44}")
-            else:
+            elif not arg.quiet:
                 print(f"{res:<44}{desc:<48}{country:<16}")
 
             ## Handle database insertion
+            #  TO DO: Make function to handle
             if arg.sqlite:
                 if arg.result and not arg.csv:
                     c.execute("INSERT INTO " + arg.sqlite[1] + " (result) VALUES (?)", (res,))
@@ -119,6 +158,7 @@ if __name__ == "__main__":
                 elif arg.csv and i == len(results) - 1:
                     cur.execute("INSERT INTO " + arg.mysql[2] + " (csv) VALUES (%s)", (','.join(csvlist),))
 
+    ## Turn values list into CSV string
     if arg.csv:
         print(','.join(csvlist))
 
